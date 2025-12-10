@@ -488,7 +488,7 @@ const Label = styled.label`
 `;
 
 const ActionsRow = styled.div`
-  margin-top: 6px;
+  margin-top: 60px;
   display: flex;
   flex-wrap: wrap;
   gap: 10px;
