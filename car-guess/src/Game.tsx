@@ -1,15 +1,22 @@
 import { useEffect, useState } from "react";
 import styled from "styled-components";
 
-const BASE_URL = "http://localhost:3000";
+const BASE_URL = "http://109.110.36.201:1121";
 const TOTAL_ROUNDS = 5;
 
 type Car = {
-  image: { src: string };
+  image: { src: string; _id: string; src2x: string; alt: string };
   title?: string;
   year?: number;
   price?: number;
   initialPriceRub?: number;
+  images?: {
+    _id: string;
+    src2x: string;
+    src: string;
+    alt: string;
+  }[];
+  description: string[];
   // Server may attach more metadata later.
 };
 
@@ -23,8 +30,16 @@ type Breakdown = {
 const formatPrice = (value?: number) =>
   typeof value === "number" ? value.toLocaleString("ru-RU") : "-";
 
+function formatNumber(value: number) {
+  return value.toLocaleString("ru-RU");
+}
+
+function parseFormatted(value: string): number {
+  return Number(value.replace(/\D/g, ""));
+}
 
 export default function Game() {
+  const [activeImageIndex, setActiveImageIndex] = useState(0);
   const [breakdown, setBreakdown] = useState<Breakdown | null>(null);
   const [car, setCar] = useState<Car | null>(null);
   const [priceGuess, setPriceGuess] = useState<number | "">("");
@@ -36,6 +51,9 @@ export default function Game() {
   const [round, setRound] = useState(1);
   const [gameOver, setGameOver] = useState(false);
 
+  const [suggestions, setSuggestions] = useState<string[]>([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+
   async function loadCar() {
     try {
       setLoading(true);
@@ -46,6 +64,7 @@ export default function Game() {
       setModelGuess("");
       setRoundScore(0);
       setBreakdown(null);
+      setActiveImageIndex(0);
     } finally {
       setLoading(false);
     }
@@ -121,6 +140,25 @@ export default function Game() {
     loadCar();
   }, []);
 
+  useEffect(() => {
+    const handler = setTimeout(async () => {
+      if (modelGuess.trim().length < 2) {
+        setSuggestions([]);
+        return;
+      }
+
+      const res = await fetch(
+        `${BASE_URL}/api/search-models?q=` + encodeURIComponent(modelGuess)
+      );
+
+      const list = await res.json();
+      setSuggestions(list);
+      setShowSuggestions(true);
+    }, 200);
+
+    return () => clearTimeout(handler);
+  }, [modelGuess]);
+
   const normalizedScore = Number.isFinite(score) ? score : 0;
   const formattedScore = normalizedScore.toLocaleString("ru-RU");
   const correctPrice =
@@ -138,15 +176,15 @@ export default function Game() {
     return (
       <Page>
         <GameCard>
-          <Title>Game finished</Title>
-          <RoundIndicator>All {TOTAL_ROUNDS} rounds completed</RoundIndicator>
-          <Hint>Thanks for playing - restart to chase a higher score.</Hint>
+          <Title>Игра закончена</Title>
+          <RoundIndicator>Все {TOTAL_ROUNDS} ранды завершены</RoundIndicator>
+          <Hint>Спасибо за игру.</Hint>
           <TotalRow>
-            <TotalLabel>Final score</TotalLabel>
+            <TotalLabel>Финальные очки</TotalLabel>
             <TotalScore>{formattedScore}</TotalScore>
           </TotalRow>
           <ActionsRow>
-            <PrimaryButton onClick={restartGame}>Play again</PrimaryButton>
+            <PrimaryButton onClick={restartGame}>Играть снова</PrimaryButton>
           </ActionsRow>
         </GameCard>
       </Page>
@@ -157,51 +195,122 @@ export default function Game() {
     return (
       <Page>
         <GameCard>
-          <Title>Guess the Price &amp; Model</Title>
-          <LoadingBlock>Loading car…</LoadingBlock>
+          <Title>Угадай цену и модель</Title>
+          <LoadingBlock>Загрузка машины…</LoadingBlock>
         </GameCard>
       </Page>
     );
   }
 
+  const images = car?.images ?? [car.image];
+  const activeImage = images[activeImageIndex];
+
   return (
     <Page>
       <GameCard>
-        <Title>Guess the Price &amp; Model</Title>
-        <RoundIndicator>Round {roundLabel} / {TOTAL_ROUNDS}</RoundIndicator>
+        <Title>Угадай цену и модель</Title>
+        <RoundIndicator>
+          Раунд {roundLabel} / {TOTAL_ROUNDS}
+        </RoundIndicator>
 
         <CarBlock>
-          <CarImageWrapper>
-            <CarImage src={car.image.src} alt={car.title} />
-          </CarImageWrapper>
+          <GalleryWrapper>
+            <BigImage
+              key={activeImage?._id}
+              src={activeImage?.src2x}
+              alt={activeImage?.alt || car.title}
+            />
+
+            {images.length > 1 && (
+              <ThumbStrip>
+                {images.map((img, i) => (
+                  <Thumb
+                    key={img._id || i}
+                    onClick={() => setActiveImageIndex(i)}
+                    $active={i === activeImageIndex}
+                  >
+                    <ThumbImg src={img.src} alt={img.alt || car.title} />
+                  </Thumb>
+                ))}
+              </ThumbStrip>
+            )}
+
+            {images.length > 1 && (
+              <>
+                <NavButtonLeft
+                  onClick={() =>
+                    setActiveImageIndex(
+                      (i) => (i - 1 + images.length) % images.length
+                    )
+                  }
+                >
+                  ‹
+                </NavButtonLeft>
+
+                <NavButtonRight
+                  onClick={() =>
+                    setActiveImageIndex((i) => (i + 1) % images.length)
+                  }
+                >
+                  ›
+                </NavButtonRight>
+              </>
+            )}
+          </GalleryWrapper>
 
           <CarInfo>
             <CarTitle>Год {car.year ?? "-"}</CarTitle>
-            <Hint>Type your guess and see how close you are 👇</Hint>
+
+            <ul>
+              {car.description.map((x, i) => (i < 5 ? <li>{x}</li> : null))}
+            </ul>
 
             <InputsGrid>
               <Field>
-                <Label>Guess price, ₽</Label>
-                <Input
-                  type="number"
-                  value={priceGuess}
-                  onChange={(e) =>
-                    setPriceGuess(
-                      e.target.value === "" ? "" : Number(e.target.value)
-                    )
-                  }
-                  placeholder="Например, 750000"
-                />
+                <Label>Цена, ₽</Label>
+                <InputWrapper>
+                  <Icon>💸</Icon>
+                  <FancyInput
+                    type="text"
+                    value={priceGuess === "" ? "" : formatNumber(priceGuess)}
+                    onChange={(e) => {
+                      const numeric = parseFormatted(e.target.value);
+                      setPriceGuess(numeric === 0 ? "" : numeric);
+                    }}
+                    placeholder="750 000"
+                  />
+                </InputWrapper>
               </Field>
 
               <Field>
-                <Label>Guess model</Label>
-                <Input
-                  type="text"
-                  value={modelGuess}
-                  onChange={(e) => setModelGuess(e.target.value)}
-                  placeholder="Impreza, Crown…"
-                />
+                <Label>Модель</Label>
+                <InputWrapper>
+                  <Icon>🚗</Icon>
+                  <FancyInput
+                    onBlur={() => {
+                      setTimeout(() => setShowSuggestions(false), 200);
+                    }}
+                    type="text"
+                    value={modelGuess}
+                    onChange={(e) => setModelGuess(e.target.value)}
+                    placeholder="Impreza, Crown…"
+                  />
+                  {showSuggestions && suggestions.length > 0 && (
+                    <SuggestBox>
+                      {suggestions.map((item) => (
+                        <SuggestItem
+                          key={item}
+                          onClick={() => {
+                            setModelGuess(item);
+                            setShowSuggestions(false);
+                          }}
+                        >
+                          {item}
+                        </SuggestItem>
+                      ))}
+                    </SuggestBox>
+                  )}
+                </InputWrapper>
               </Field>
             </InputsGrid>
 
@@ -215,14 +324,16 @@ export default function Game() {
                   modelGuess.trim().length === 0
                 }
               >
-                {submitting ? "Checking…" : "Submit guess"}
+                {submitting ? "Проверяем..." : "Отправить"}
               </PrimaryButton>
 
               <SecondaryButton
                 onClick={handleNextRound}
                 disabled={submitting || loading}
               >
-                {round === TOTAL_ROUNDS ? "Finish game" : "Skip / Next car"}
+                {round === TOTAL_ROUNDS
+                  ? "Завершить"
+                  : "Пропустить / Следующая машина"}
               </SecondaryButton>
             </ActionsRow>
           </CarInfo>
@@ -236,20 +347,20 @@ export default function Game() {
 
             <ScoreGrid>
               <ScoreCard>
-                <ScoreLabel>Price score</ScoreLabel>
-                <ScoreValue>{breakdown.priceScore} pts</ScoreValue>
+                <ScoreLabel>Очки за цену</ScoreLabel>
+                <ScoreValue>{breakdown.priceScore} очков</ScoreValue>
                 <ScoreHint>Error: {errorPercent}</ScoreHint>
               </ScoreCard>
 
               <ScoreCard>
-                <ScoreLabel>Model score</ScoreLabel>
-                <ScoreValue>{breakdown.modelScore} pts</ScoreValue>
+                <ScoreLabel>Очки за модель</ScoreLabel>
+                <ScoreValue>{breakdown.modelScore} очков</ScoreValue>
               </ScoreCard>
 
               <ScoreCard>
-                <ScoreLabel>Correct answer</ScoreLabel>
+                <ScoreLabel>Правильный ответ</ScoreLabel>
                 <ScoreText>
-                  Price: {formatPrice(correctPrice)}
+                  Фактическая цена: {formatPrice(correctPrice)}
                   <br />
                   {correctYear} {correctTitle}
                 </ScoreText>
@@ -318,8 +429,8 @@ const RoundIndicator = styled.div`
 `;
 
 const CarBlock = styled.div`
-  display: grid;
-  grid-template-columns: minmax(0, 1.2fr) minmax(0, 1.3fr);
+  display: flex;
+  flex-direction: column;
   gap: 24px;
 
   @media (max-width: 820px) {
@@ -327,32 +438,18 @@ const CarBlock = styled.div`
   }
 `;
 
-const CarImageWrapper = styled.div`
-  border-radius: 18px;
-  overflow: hidden;
-  background: radial-gradient(circle at top, #111827, #020617);
-  border: 1px solid rgba(55, 65, 81, 0.8);
-  position: relative;
-  min-height: 240px;
-`;
-
-const CarImage = styled.img`
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
-  transform: scale(1.02);
-  transition: transform 200ms ease-out;
-
-  ${CarImageWrapper}:hover & {
-    transform: scale(1.06);
-  }
-`;
-
 const CarInfo = styled.div`
   display: flex;
   flex-direction: column;
   gap: 14px;
+
+  ul,
+  li {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    list-style: none;
+  }
 `;
 
 const CarTitle = styled.h2`
@@ -388,28 +485,6 @@ const Label = styled.label`
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: #9ca3af;
-`;
-
-const Input = styled.input`
-  background: #020617;
-  border-radius: 10px;
-  border: 1px solid rgba(55, 65, 81, 0.9);
-  padding: 10px 12px;
-  font-size: 14px;
-  color: #e5e7eb;
-  outline: none;
-  transition: border-color 120ms ease, box-shadow 120ms ease,
-    background 120ms ease;
-
-  &::placeholder {
-    color: #6b7280;
-  }
-
-  &:focus {
-    border-color: #38bdf8;
-    box-shadow: 0 0 0 1px rgba(56, 189, 248, 0.4);
-    background: #020617;
-  }
 `;
 
 const ActionsRow = styled.div`
@@ -556,4 +631,164 @@ const LoadingBlock = styled.div`
   font-size: 16px;
   color: #e5e7eb;
   opacity: 0.9;
+`;
+
+const GalleryWrapper = styled.div`
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+`;
+
+const BigImage = styled.img`
+  width: 100%;
+  min-height: 600px;
+  object-fit: contain;
+  border-radius: 14px;
+  border: 1px solid rgba(55, 65, 81, 0.7);
+  transition: opacity 200ms ease;
+`;
+
+const ThumbStrip = styled.div`
+  display: flex;
+  gap: 8px;
+  overflow-x: auto;
+  padding-bottom: 4px;
+
+  &::-webkit-scrollbar {
+    height: 6px;
+  }
+
+  &::-webkit-scrollbar-thumb {
+    background: #41506b;
+    border-radius: 6px;
+  }
+`;
+
+const Thumb = styled.div<{ $active: boolean }>`
+  flex: 0 0 auto;
+  border-radius: 8px;
+  border: 2px solid
+    ${({ $active }) => ($active ? "#38bdf8" : "rgba(55, 65, 81, 0.8)")};
+  cursor: pointer;
+  overflow: hidden;
+  transition: border-color 150ms ease;
+
+  &:hover {
+    border-color: #38bdf8;
+  }
+`;
+
+const ThumbImg = styled.img`
+  width: 80px;
+  height: 60px;
+  object-fit: cover;
+`;
+
+const NavButton = styled.button`
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  background: rgba(15, 23, 42, 0.75);
+  color: #f9fafb;
+  border: 1px solid rgba(55, 65, 81, 0.8);
+  border-radius: 50%;
+  width: 32px;
+  height: 50px;
+  font-size: 20px;
+  line-height: 0;
+  cursor: pointer;
+  transition: background 120ms ease;
+
+  &:hover {
+    background: rgba(15, 23, 42, 0.95);
+  }
+`;
+
+const NavButtonLeft = styled(NavButton)`
+  left: 8px;
+`;
+
+const NavButtonRight = styled(NavButton)`
+  right: 8px;
+`;
+
+const InputWrapper = styled.div`
+  position: relative;
+  display: flex;
+  align-items: center;
+`;
+
+const Icon = styled.div`
+  position: absolute;
+  left: 12px;
+  font-size: 16px;
+  opacity: 0.7;
+  pointer-events: none;
+`;
+
+const FancyInput = styled.input`
+  width: 100%;
+  background: rgba(2, 6, 23, 0.85);
+  border-radius: 12px;
+  border: 1px solid rgba(55, 65, 81, 0.4);
+  padding: 12px 14px 12px 40px;
+  font-size: 15px;
+  color: #e5e7eb;
+  outline: none;
+  transition: 120ms ease;
+  backdrop-filter: blur(6px);
+
+  &::placeholder {
+    color: #737b87;
+  }
+
+  &:hover {
+    border-color: rgba(148, 163, 184, 0.6);
+  }
+
+  &:focus {
+    border-color: #22c55e;
+    box-shadow: 0 0 0 2px rgba(34, 197, 94, 0.3);
+    background: rgba(2, 6, 23, 0.95);
+  }
+
+  &:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+`;
+
+const SuggestBox = styled.div`
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  margin-top: 4px;
+  background: rgba(2, 6, 23, 0.98);
+  border: 1px solid rgba(55, 65, 81, 0.9);
+  border-radius: 12px;
+  max-height: 240px;
+  overflow-y: auto;
+  z-index: 50;
+  box-shadow: 0 16px 32px rgba(0, 0, 0, 0.45);
+`;
+
+const SuggestItem = styled.div`
+  padding: 10px 14px;
+  cursor: pointer;
+  font-size: 14px;
+  color: #e5e7eb;
+  border-bottom: 1px solid rgba(55, 65, 81, 0.6);
+
+  &:last-child {
+    border-bottom: none;
+  }
+
+  &:hover {
+    background: rgba(56, 189, 248, 0.15);
+  }
 `;

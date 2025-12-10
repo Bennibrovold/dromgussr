@@ -8,8 +8,7 @@ app.use(express.json());
 
 app.use(
   cors({
-    origin: "http://localhost:5173",
-    credentials: true,
+    origin: "*",
   })
 );
 
@@ -75,4 +74,27 @@ app.post("/api/guess", (req, res) => {
   });
 });
 
-app.listen(3000, () => console.log("server ready"));
+app.get("/api/search-models", async (req, res) => {
+  try {
+    const q = (req.query.q || "").trim();
+
+    if (!q) {
+      return res.json([]);
+    }
+
+    // Regex: case-insensitive, starts anywhere
+    const regex = new RegExp(q, "i");
+
+    const cars = await Car.find({ title: regex }, { title: 1 }).limit(20);
+
+    // Unique titles
+    const unique = [...new Set(cars.map((c) => c.title))];
+
+    res.json(unique);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+app.listen(1121, () => console.log("server ready"));
